@@ -1,26 +1,57 @@
 from pacman import Directions
 from game import Agent
-import mapAgents
+from mapAgents import Grid
 import api
 import random
 import game
 import util
 
 #Rewards
-R_FOOD = 10
-R_WALLS = None
-R_CAP = 5
-R_GHOST = -1000
-R_G_NEIGH = -500
-R_PAC = -15
-R_EMPTY = 0
-T_VALUE = 500
+FOOD = 10
+CAPS = 25
+GHOST = -1000
+EMPTY = -5
 
-#Interface
-class MDP:
-#     #""" Return all states of this MDP """
-#     def get_states(self):
+
+class MDPAgent(Agent):
+    def getLayoutHeight(self, corners):
+        height = -1
+        for i in range(len(corners)):
+            if corners[i][1] > height:
+                height = corners[i][1]
+        return height + 1
+
+    def getLayoutWidth(self, corners):
+        width = -1
+        for i in range(len(corners)):
+            if corners[i][0] > width:
+                width = corners[i][0]
+        return width + 1
+
+    def makeMap(self, state):
+        corners = api.corners(state)
+        height = self.getLayoutHeight(corners)
+        width = self.getLayoutWidth(corners)
+        map = Grid(width, height)
+        return map
+
+    def get_states(self, state):
+
         #return all possible states as (x,y) coordinates
+        # this is states that are not walls
+        # checked on small grid and runs correctly
+        
+        height = self.getLayoutHeight( api.corners(state))
+        width = self.getLayoutWidth(api.corners(state))
+
+        walls = api.walls(state)
+        states = []
+        for i in range(width):
+            for j in range(height):
+                if (i,j) not in walls:
+                    states.append((i,j))
+        
+        return states
 
 #     #""" Return all actions with non-zero probability from this state """
     def get_actions(self, state):
@@ -38,6 +69,7 @@ class MDP:
 
 #Return all non-zero probability transitions for this action
 # from this state, as a list of (next_state, probability) pairs
+# needs to be tested if works
     def get_transitions(self, state, action):
         transitions = []
 
@@ -57,91 +89,105 @@ class MDP:
             transitions += self.valid_add(state, (x, y - 1), straight)
             transitions += self.valid_add(state, (x - 1, y), noise)
             transitions += self.valid_add(state, (x + 1, y), noise)
+            transitions += self.valid_add(state, (x, y+1), 0.0)  
 
         elif action == Directions.RIGHT:
             transitions += self.valid_add(state, (x + 1, y), straight)
             transitions += self.valid_add(state, (x, y - 1), noise)
             transitions += self.valid_add(state, (x, y + 1), noise)
+            transitions += self.valid_add(state, (x-1, y), 0.0)
 
         elif action == Directions.LEFT:
             transitions += self.valid_add(state, (x - 1, y), straight)
             transitions += self.valid_add(state, (x, y - 1), noise)
             transitions += self.valid_add(state, (x, y + 1), noise)
+            transitions += self.valid_add(state, (x+1, y), 0.0)
 
         return transitions
     
     #when wall in place there will be some probability of staying in the same state
     def valid_add(self, state, new_state, probability):
 
-        if new_state not in MDP.get_states(self):
+        if new_state not in self.get_states(state):
             return [(api.whereAmI(state), probability)]
 
         return [(new_state, probability)]
      
+    # creates a dictionary of state: reward - note needs to be updated at each step
+    # needs to be tested
+    def map_rewards(self, state, states):
+         
+        mapRewards = []
+        food = api.food(state)
+        capsules = api.capsules(state)
+        ghosts = api.ghosts(state)
+        walls = api.walls(state)
 
-#""" Return the reward for transitioning from state to nextState via action
-# return numeric reward for this state given some action
-    def get_reward(self, state, action, new_state):
-        reward = 0.0
-        #here modify to assign to reward whatever value appropriate
-        
-        if state in self.get_goal_states().keys():
-            reward = self.get_goal_states().get(state) 
-        else:
-            reward = self.action_cost #if state not in goal states assign some reward
-        return reward
+        for s in states:
+            mapRewards.append(s)
+    
+            if s in food:
+                mapRewards[s] = FOOD
+            elif s in capsules:
+                mapRewards[s] = CAPS
+            elif s in ghosts:
+                mapRewards[s] = GHOST
+            else:
+                mapRewards[s] = EMPTY
+
+        return mapRewards
+    
+    def get_reward(self, new_state, rewards_map):
+
+        return rewards_map[new_state]
 
 
 
-# initialize the values:
-# Values is the length of how many states we've got
-#like an additional external array V = [0, 0, 0 ... 0s]
-#pi = [None, none, none , .... nones] size of states, same as values stores best policies
-class ValueIteration:
-
-    def value_iteration(self, max_iterations=100, theta=0.001):
+    def value_iteration(self, state, max_iterations=100, theta=0.001):
+        # initialize the values:
+        Values = []
+        Policy = []
+        # Values is the length of how many states we've got
+        for n in range(len(self.get_states())):
+            Values[state] = 0
+            Policy[state] = None
 
         for i in range(max_iterations):
             delta = 0.0
-            new_values = dict([(s, 0) for s in mdp.states]) #initialize values for each state assign zero
-            for state in self.mdp.get_states():
+            #initialize values for each state assign zero
+            new_Values = []
+            for m in range(len(self.get_states())):
+                new_Values[state] = 0
+            
+            for s in self.get_states():
                 max_val = 0 #initialise max value to zero
                 #for each state, compute value for each legal action
-                for action in self.mdp.get_actions(state):
+                for action in self.get_actions(state):
                     # Calculate the state value when certain action is taken
-                    for (new_state, probability) in self.mdp.get_transitions(state, action):
-                        reward = self.mdp.get_reward(state, action, new_state) #direct reward for that resulting next state
+                    for (new_state, probability) in self.get_transitions(state, action):
+                        reward = self.map_rewards(state, new_state) #direct reward for that resulting next state
                         #U1[s] = prob * (reward(s) + gamma* val_newstate)
-                        new_value += probability * (reward + (_discount_factor()
-                                * self.Values(new_state) #value for next state
-                            )
-                        )
+                        new_value += probability * (reward[new_state] + (self.get_discount_factor() * self.Values[new_state])) #value for next state
 
                     # Store the value for best action so far
                     max_val = max(max_val, new_value)
 
                     #update best policy
-                    if Values(state) < new_value:
-                        pi[state] = get_actions[action] #store action with highest value
+                    if Values[state] < new_value:
+                        Policy[state] = action #store action with highest value
                 #update value with highest value
-                new_values[state] = max_val
+                new_Values[state] = max_val
                 #update max difference
-                delta = max(delta, abs(values[s] - new_value[s]))
+                delta = max(delta, abs(Values[s] - new_Values[s]))
             #update (extr. vals function)
-            values = new_values
+            Values = new_Values
 
             # Terminate if the value function has converged
             if delta < theta:
                 return i
 
-
-#write code to perform action based on the optimal policy
-
-
-
-
-
-class MDPAgent(Agent):
+        #write code to perform action based on the optimal policy
+        #write get reward that returns a reward for a specific state
 
     # Constructor: this gets run when we first invoke pacman.py
     def __init__(self):
@@ -154,49 +200,6 @@ class MDPAgent(Agent):
     def registerInitialState(self, state):
         print "Running registerInitialState for MDPAgent!"
 
-
-    def initialStatesMap(self, state):
-        width = self.getWidth(api.corners(state))
-        height = self.getHeight(api.corners(state))
-
-        #initialise with zeros where empty, alternative to np.zeros
-        #results in a list of lists = 2D array
-        statesMap = [[0 for x in range(width)] for y in range(height)]
-        
-        #retrive information on the environment
-        food = api.food(state)
-        capsules = api.capsules(state)
-        ghosts = api.ghosts(state)
-        walls = api.walls(state)
-
-        #Append the 2D array with information on environment
-        for i in food:
-            statesMap[i[0]][i[1]]= R_FOOD
-        for i in capsules:
-            statesMap[i[0]][i[1]] = R_CAP
-        for i in ghosts:
-            statesMap[i[0]][i[1]] = R_GHOST
-        for i in walls:
-            statesMap[i[0]][i[1]] = R_WALLS
-        
-        
-        return statesMap
-
-    def updateMap(self, state, oldStatesMap):
-        
-        statesMap = oldStatesMap
-        food = api.food(state)
-        capsules = api.capsules(state)
-        ghosts = api.ghosts(state)
-
-        for i in food:
-            statesMap[i[0]][i[1]]= R_FOOD
-        for i in capsules:
-            statesMap[i[0]][i[1]] = R_CAP
-        for i in ghosts:
-            statesMap[i[0]][i[1]] = R_GHOST
-
-        return statesMap
 
     # This is what gets run in between multiple games
     def final(self, state):
