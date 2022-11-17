@@ -7,7 +7,7 @@ import game
 import util
 
 #Rewards
-FOOD = 10
+FOOD = 50
 CAPS = 25
 GHOST = -1000
 EMPTY = -5
@@ -53,10 +53,22 @@ class MDPAgent(Agent):
         
         return states
 
-#     #""" Return all actions with non-zero probability from this state """
-    def get_actions(self, state):
-        #all legal actions for the current state
-        return state.getLegalPacmanActions()
+#     #""" Return all legal for the state """
+    #tested and works as intended
+    def get_actions(self, states, current_state):
+        legal_actions = []
+
+        (x, y) = current_state
+        if ((x+1),y) in states:
+            legal_actions.append(Directions.EAST)
+        if ((x-1),y) in states:
+            legal_actions.append(Directions.WEST)
+        if (x, (y-1)) in states:
+            legal_actions.append(Directions.SOUTH)
+        if (x, (y+1)) in states:
+            legal_actions.append(Directions.NORTH)
+
+        return legal_actions
 
 #     """ Return the discount factor for this MDP """
     def get_discount_factor(self):
@@ -69,47 +81,49 @@ class MDPAgent(Agent):
 
 #Return all non-zero probability transitions for this action
 # from this state, as a list of (next_state, probability) pairs
-# needs to be tested if works
-    def get_transitions(self, state, action):
+# tested and works
+    def get_transitions(self, state, current_state, action):
         transitions = []
 
         # Probabilities
         straight = api.directionProb
-        noise = 0.5*(1 - api.directionProb)
+        noise = 0.1
 
-        (x, y) = api.whereAmI(state) #initial state
-
+        #(x, y) = api.whereAmI(state) #initial state
+        (x, y) = current_state
+        
         if action == Directions.NORTH:
-            transitions += self.valid_add(state, (x, y + 1), straight) #goes up as intented
-            transitions += self.valid_add(state, (x - 1, y), noise) #goes left
-            transitions += self.valid_add(state, (x + 1, y), noise)
-            transitions += self.valid_add(state, (x, y-1), 0.0)  
+            transitions += self.valid_add(state,(x,y), (x, y + 1), straight) 
+            transitions += self.valid_add(state,(x,y), (x - 1, y), noise) 
+            transitions += self.valid_add(state,(x,y), (x + 1, y), noise)
+            transitions += self.valid_add(state,(x,y), (x, y-1), 0.0)  
 
         elif action == Directions.SOUTH:
-            transitions += self.valid_add(state, (x, y - 1), straight)
-            transitions += self.valid_add(state, (x - 1, y), noise)
-            transitions += self.valid_add(state, (x + 1, y), noise)
-            transitions += self.valid_add(state, (x, y+1), 0.0)  
+            transitions += self.valid_add(state,(x,y), (x, y - 1), straight)
+            transitions += self.valid_add(state,(x,y), (x - 1, y), noise)
+            transitions += self.valid_add(state,(x,y), (x + 1, y), noise)
+            transitions += self.valid_add(state,(x,y), (x, y+1), 0.0)  
 
-        elif action == Directions.RIGHT:
-            transitions += self.valid_add(state, (x + 1, y), straight)
-            transitions += self.valid_add(state, (x, y - 1), noise)
-            transitions += self.valid_add(state, (x, y + 1), noise)
-            transitions += self.valid_add(state, (x-1, y), 0.0)
+        elif action == Directions.EAST:
+            transitions += self.valid_add(state,(x,y), (x + 1, y), straight)
+            transitions += self.valid_add(state,(x,y), (x, y - 1), noise)
+            transitions += self.valid_add(state,(x,y), (x, y + 1), noise)
+            transitions += self.valid_add(state,(x,y), (x-1, y), 0.0)
 
-        elif action == Directions.LEFT:
-            transitions += self.valid_add(state, (x - 1, y), straight)
-            transitions += self.valid_add(state, (x, y - 1), noise)
-            transitions += self.valid_add(state, (x, y + 1), noise)
-            transitions += self.valid_add(state, (x+1, y), 0.0)
+        elif action == Directions.WEST:
+            transitions += self.valid_add(state,(x,y), (x - 1, y), straight)
+            transitions += self.valid_add(state,(x,y), (x, y - 1), noise)
+            transitions += self.valid_add(state,(x,y), (x, y + 1), noise)
+            transitions += self.valid_add(state,(x,y), (x+1, y), 0.0)
 
         return transitions
     
-    #when wall in place there will be some probability of staying in the same state
-    def valid_add(self, state, new_state, probability):
+    #when wall in place there will probability of staying in the same state
+    #tested and works
+    def valid_add(self, state, current_state, new_state, probability):
 
         if new_state not in self.get_states(state):
-            return [(api.whereAmI(state), probability)]
+            return [((current_state), probability)]
 
         return [(new_state, probability)]
      
@@ -117,15 +131,13 @@ class MDPAgent(Agent):
     # needs to be tested
     def map_rewards(self, state, states):
          
-        mapRewards = []
+        mapRewards = {}
         food = api.food(state)
         capsules = api.capsules(state)
         ghosts = api.ghosts(state)
         walls = api.walls(state)
 
         for s in states:
-            mapRewards.append(s)
-    
             if s in food:
                 mapRewards[s] = FOOD
             elif s in capsules:
@@ -141,42 +153,52 @@ class MDPAgent(Agent):
 
         return rewards_map[new_state]
 
-
+    def extract_move(self, state, current_state, opt_policy):
+        legal = api.legalActions(state)
+        action = opt_policy[current_state]
+        if action not in legal:
+            print 'Something is wrong this action is not legal for this state'
+    
+        return action
 
     def value_iteration(self, state, max_iterations=100, theta=0.001):
         # initialize the values:
-        Values = []
-        Policy = []
+        Values = {}
+        Policy = {}
+        
+        states = self.get_states(state)
+        rewards = self.map_rewards(state, states)
         # Values is the length of how many states we've got
-        for n in range(len(self.get_states())):
-            Values[state] = 0
-            Policy[state] = None
+        for n in states:
+            Values[n] = -100000.0
+            Policy[n] = None
 
         for i in range(max_iterations):
             delta = 0.0
             #initialize values for each state assign zero
-            new_Values = []
-            for m in range(len(self.get_states())):
-                new_Values[state] = 0
+            new_Values = {}
+            for m in states:
+                new_Values[m] = 0.0
             
-            for s in self.get_states():
-                max_val = 0 #initialise max value to zero
+            for s in states:
+                max_val = 0.0 #initialise max value to zero
                 #for each state, compute value for each legal action
-                for action in self.get_actions(state):
+                for action in self.get_actions(states, s):
                     # Calculate the state value when certain action is taken
-                    for (new_state, probability) in self.get_transitions(state, action):
-                        reward = self.map_rewards(state, new_state) #direct reward for that resulting next state
+                    new_value = 0.0
+                    for (new_state, probability) in self.get_transitions(state, s, action):
+                        reward = self.get_reward(new_state, rewards) #direct reward for that resulting next state
                         #U1[s] = prob * (reward(s) + gamma* val_newstate)
-                        new_value += probability * (reward[new_state] + (self.get_discount_factor() * self.Values[new_state])) #value for next state
-
+                        new_value += probability * (reward + (self.get_discount_factor() * Values[new_state])) #value for next state
+                       
                     # Store the value for best action so far
                     max_val = max(max_val, new_value)
-
                     #update best policy
-                    if Values[state] < new_value:
-                        Policy[state] = action #store action with highest value
+                    if Values[s] < new_value:
+                        Policy[s] = action #store action with highest value
+                
                 #update value with highest value
-                new_Values[state] = max_val
+                new_Values[s] = max_val
                 #update max difference
                 delta = max(delta, abs(Values[s] - new_Values[s]))
             #update (extr. vals function)
@@ -184,10 +206,10 @@ class MDPAgent(Agent):
 
             # Terminate if the value function has converged
             if delta < theta:
-                return i
+                return i, Policy
 
         #write code to perform action based on the optimal policy
-        #write get reward that returns a reward for a specific state
+        
 
     # Constructor: this gets run when we first invoke pacman.py
     def __init__(self):
@@ -199,7 +221,8 @@ class MDPAgent(Agent):
     # game state to access.
     def registerInitialState(self, state):
         print "Running registerInitialState for MDPAgent!"
-
+        #map rewards
+        # get rewards to be tested
 
     # This is what gets run in between multiple games
     def final(self, state):
@@ -207,11 +230,15 @@ class MDPAgent(Agent):
 
     # For now I just move randomly
     def getAction(self, state):
-       
-       
-        # Get the actions we can try, and remove "STOP" if that is one of them.
+        i, policy = self.value_iteration(state)
+        # print 'Pac at state:'
+        now = api.whereAmI(state)
         legal = api.legalActions(state)
-        if Directions.STOP in legal:
-            legal.remove(Directions.STOP)
+        # print 'legal actions are: '
+        # print legal
+        # print 'Policy at current state:'
+        # print policy[api.whereAmI(state)]
+        # move = self.extract_move(state, api.whereAmI(state), policy )
+        # legal = api.legalActions(state)
         # Random choice between the legal options.
-        return api.makeMove(random.choice(legal), legal)
+        return api.makeMove(policy[now], legal)
