@@ -7,42 +7,40 @@ import game
 import util
 
 #Rewards
-FOOD = 50
-CAPS = 25
-GHOST = -1000
+FOOD = 100
+CAPS = 400
+GHOST = -15000
 EMPTY = -5
-
+GAMMA = 0.9
 
 class MDPAgent(Agent):
-    def getLayoutHeight(self, corners):
+    # Constructor: this gets run when we first invoke pacman.py
+    def __init__(self):
+        print "Starting up MDPAgent!"
+        name = "Pacman"
+        self.Values = {}
+        self.Policy = {}
+
+        
+    def get_layout_height(self, corners):
         height = -1
         for i in range(len(corners)):
             if corners[i][1] > height:
                 height = corners[i][1]
         return height + 1
 
-    def getLayoutWidth(self, corners):
+    def get_layout_width(self, corners):
         width = -1
         for i in range(len(corners)):
             if corners[i][0] > width:
                 width = corners[i][0]
         return width + 1
 
-    def makeMap(self, state):
-        corners = api.corners(state)
-        height = self.getLayoutHeight(corners)
-        width = self.getLayoutWidth(corners)
-        map = Grid(width, height)
-        return map
-
-    def get_states(self, state):
-
-        #return all possible states as (x,y) coordinates
-        # this is states that are not walls
-        # checked on small grid and runs correctly
-        
-        height = self.getLayoutHeight( api.corners(state))
-        width = self.getLayoutWidth(api.corners(state))
+    # Return all traversable states as (x,y) coordinates list
+    # Include only states that are not walls
+    def get_states(self, state):        
+        height = self.get_layout_height( api.corners(state))
+        width = self.get_layout_width(api.corners(state))
 
         walls = api.walls(state)
         states = []
@@ -53,192 +51,196 @@ class MDPAgent(Agent):
         
         return states
 
-#     #""" Return all legal for the state """
-    #tested and works as intended
-    def get_actions(self, states, current_state):
-        legal_actions = []
+    # Return next states as result of taking action from the current state
+    # Next state resturned as a list of tuples [west, north, south, east]
+    def get_next_state(self, all_states, current_state):
+        west = (current_state[0]-1, current_state[1])
+        north = (current_state[0], current_state[1]+1)
+        south = (current_state[0], current_state[1]-1)
+        east = (current_state[0]+1, current_state[1])
 
-        (x, y) = current_state
-        if ((x+1),y) in states:
-            legal_actions.append(Directions.EAST)
-        if ((x-1),y) in states:
-            legal_actions.append(Directions.WEST)
-        if (x, (y-1)) in states:
-            legal_actions.append(Directions.SOUTH)
-        if (x, (y+1)) in states:
-            legal_actions.append(Directions.NORTH)
-
-        return legal_actions
-
-#     """ Return the discount factor for this MDP """
-    def get_discount_factor(self):
-        discount_factor = 0.9
-        return discount_factor
-
-#    Return the initial state of this MDP
-    def get_initial_state(state):
-        return api.whereAmI(state)
-
-#Return all non-zero probability transitions for this action
-# from this state, as a list of (next_state, probability) pairs
-# tested and works
-    def get_transitions(self, state, current_state, action):
-        transitions = []
-
-        # Probabilities
-        straight = api.directionProb
-        noise = 0.1
-
-        #(x, y) = api.whereAmI(state) #initial state
-        (x, y) = current_state
+        next_state = [west, north, south, east]
         
-        if action == Directions.NORTH:
-            transitions += self.valid_add(state,(x,y), (x, y + 1), straight) 
-            transitions += self.valid_add(state,(x,y), (x - 1, y), noise) 
-            transitions += self.valid_add(state,(x,y), (x + 1, y), noise)
-            transitions += self.valid_add(state,(x,y), (x, y-1), 0.0)  
+        #if state is a wall, assign current state to next state
+        for a in next_state:
+            if a not in all_states:
+                next_state[next_state.index(a)] = current_state
 
-        elif action == Directions.SOUTH:
-            transitions += self.valid_add(state,(x,y), (x, y - 1), straight)
-            transitions += self.valid_add(state,(x,y), (x - 1, y), noise)
-            transitions += self.valid_add(state,(x,y), (x + 1, y), noise)
-            transitions += self.valid_add(state,(x,y), (x, y+1), 0.0)  
+        return next_state
 
-        elif action == Directions.EAST:
-            transitions += self.valid_add(state,(x,y), (x + 1, y), straight)
-            transitions += self.valid_add(state,(x,y), (x, y - 1), noise)
-            transitions += self.valid_add(state,(x,y), (x, y + 1), noise)
-            transitions += self.valid_add(state,(x,y), (x-1, y), 0.0)
+    #Return all non-zero probability transitions for this action
+    # from this state, as a list of (next_state, probability) pairs
+    # tested and works
+    #def get_transitions(self, state, current_state, action):
 
-        elif action == Directions.WEST:
-            transitions += self.valid_add(state,(x,y), (x - 1, y), straight)
-            transitions += self.valid_add(state,(x,y), (x, y - 1), noise)
-            transitions += self.valid_add(state,(x,y), (x, y + 1), noise)
-            transitions += self.valid_add(state,(x,y), (x+1, y), 0.0)
-
-        return transitions
     
-    #when wall in place there will probability of staying in the same state
-    #tested and works
-    def valid_add(self, state, current_state, new_state, probability):
-
-        if new_state not in self.get_states(state):
-            return [((current_state), probability)]
-
-        return [(new_state, probability)]
-     
-    # creates a dictionary of state: reward - note needs to be updated at each step
-    # needs to be tested
+    # creates a dictionary of direct state rewards
     def map_rewards(self, state, states):
          
         mapRewards = {}
         food = api.food(state)
         capsules = api.capsules(state)
-        ghosts = api.ghosts(state)
-        walls = api.walls(state)
+        #"state" is 1 if the relevant ghost is scared/edible, and 0
+        # otherwise.
+
+        ghost_loc = []
+        for g, status in api.ghostStates(state):
+            if status == 0:
+                ghost_loc.append(g)
+                ghost_loc.append((g[0]+1, g[1])) #one sq east
+                ghost_loc.append((g[0]-1, g[1])) #one sq west
+                ghost_loc.append((g[0], g[1]+1)) #one sq north
+                ghost_loc.append((g[0], g[1]-1)) #one sq south
+                ghost_loc.append((g[0]+1, g[1]+1)) #one sq east
+                ghost_loc.append((g[0]-1, g[1]-1)) #one sq west
+                ghost_loc.append((g[0]+1, g[1]-1)) #one sq north
+                ghost_loc.append((g[0]-1, g[1]+1)) #one sq south
+                ghost_loc.append((g[0]+2, g[1])) #one sq east
+                ghost_loc.append((g[0]-2, g[1])) #one sq west
+                ghost_loc.append((g[0], g[1]+2)) #one sq north
+                ghost_loc.append((g[0], g[1]-2)) #one sq south
+                ghost_loc.append((g[0]+2, g[1]+2)) #one sq east
+                ghost_loc.append((g[0]-2, g[1]-2)) #one sq west
+                ghost_loc.append((g[0]+2, g[1]-2)) #one sq north
+                ghost_loc.append((g[0]-2, g[1]+2)) #one sq south
+            elif status == 1:
+                capsules.append(g)
+
 
         for s in states:
-            if s in food:
+            if s in ghost_loc:
+                mapRewards[s] = GHOST
+            elif s in food:
                 mapRewards[s] = FOOD
             elif s in capsules:
                 mapRewards[s] = CAPS
-            elif s in ghosts:
-                mapRewards[s] = GHOST
             else:
                 mapRewards[s] = EMPTY
 
         return mapRewards
-    
-    def get_reward(self, new_state, rewards_map):
 
-        return rewards_map[new_state]
 
-    def extract_move(self, state, current_state, opt_policy):
-        legal = api.legalActions(state)
-        action = opt_policy[current_state]
-        if action not in legal:
-            print 'Something is wrong this action is not legal for this state'
-    
-        return action
-
-    def value_iteration(self, state, max_iterations=100, theta=0.001):
-        # initialize the values:
-        Values = {}
-        Policy = {}
+    def value_iteration(self, state, theta=0.001):
+        
         
         states = self.get_states(state)
         rewards = self.map_rewards(state, states)
+        new_Values = {}
         # Values is the length of how many states we've got
         for n in states:
-            Values[n] = -100000.0
-            Policy[n] = None
-
-        for i in range(max_iterations):
-            delta = 0.0
+            self.Values[n] = 0.0
+            self.Policy[n] = None
+            new_Values[n] = 0.0 
+    
+        convered_states = []
+        while len(convered_states) < len(states):
+            
             #initialize values for each state assign zero
-            new_Values = {}
-            for m in states:
-                new_Values[m] = 0.0
             
             for s in states:
                 max_val = 0.0 #initialise max value to zero
-                #for each state, compute value for each legal action
-                for action in self.get_actions(states, s):
-                    # Calculate the state value when certain action is taken
-                    new_value = 0.0
-                    for (new_state, probability) in self.get_transitions(state, s, action):
-                        reward = self.get_reward(new_state, rewards) #direct reward for that resulting next state
-                        #U1[s] = prob * (reward(s) + gamma* val_newstate)
-                        new_value += probability * (reward + (self.get_discount_factor() * Values[new_state])) #value for next state
-                       
-                    # Store the value for best action so far
-                    max_val = max(max_val, new_value)
-                    #update best policy
-                    if Values[s] < new_value:
-                        Policy[s] = action #store action with highest value
+                Utility = []
+
+                next_state = self.get_next_state(states, s)
+
+                #Calculate expected unitility value for each transition
+
+                r_west = new_Values[next_state[0]]
+                r_north = new_Values[next_state[1]]
+                r_south = new_Values[next_state[2]]
+                r_east = new_Values[next_state[3]]
+                Utility.append(0.8*r_west+0.1*r_north+0.1*r_south)
+                Utility.append(0.8*r_north+0.1*r_west+0.1*r_east)
+                Utility.append(0.8*r_south+0.1*r_east+0.1*r_west)
+                Utility.append(0.8*r_east+0.1*r_north+0.1*r_south)
                 
-                #update value with highest value
-                new_Values[s] = max_val
+
+                max_val = max(Utility)
+                max_index = str(Utility.index(max_val))                
+
+                # if max_index == '0':
+                #     self.Policy[s] = Directions.WEST
+                # elif max_index == '1':
+                #     self.Policy[s] = Directions.NORTH
+                # elif max_index == '2':
+                #     self.Policy[s] = Directions.SOUTH
+                # elif max_index == '3':
+                #     self.Policy[s] = Directions.EAST
+
+                
+                #bellman update
+                new_Values[s] = rewards[s] + (GAMMA * max_val)      
+                
+                
                 #update max difference
-                delta = max(delta, abs(Values[s] - new_Values[s]))
-            #update (extr. vals function)
-            Values = new_Values
+                delta = abs(self.Values[s] - new_Values[s])
+               
+                #Update values for states
+                self.Values[s] = new_Values[s]
+                
+ 
+            # Record the state as converged, when delta<theta
+            # Allows to terminate when states converged
+                if delta < theta:
+                    if s not in convered_states:
+                        convered_states.append(s)
 
-            # Terminate if the value function has converged
-            if delta < theta:
-                return i, Policy
 
-        #write code to perform action based on the optimal policy
-        
-
-    # Constructor: this gets run when we first invoke pacman.py
-    def __init__(self):
-        print "Starting up MDPAgent!"
-        name = "Pacman"
-        
-
-    # Gets run after an MDPAgent object is created and once there is
+    # (skeleton) Gets run after an MDPAgent object is created and once there is
     # game state to access.
     def registerInitialState(self, state):
         print "Running registerInitialState for MDPAgent!"
         #map rewards
         # get rewards to be tested
 
-    # This is what gets run in between multiple games
+    # (skeleton) This is what gets run in between multiple games
     def final(self, state):
         print "Looks like the game just ended!"
+        self.Values = {}
+        self.Policy = {}
 
-    # For now I just move randomly
+    # Run at each game clock
     def getAction(self, state):
-        i, policy = self.value_iteration(state)
-        # print 'Pac at state:'
-        now = api.whereAmI(state)
+        
+        #print 'Game iter'
+        
+        current_state = api.whereAmI(state)
         legal = api.legalActions(state)
-        # print 'legal actions are: '
-        # print legal
-        # print 'Policy at current state:'
-        # print policy[api.whereAmI(state)]
-        # move = self.extract_move(state, api.whereAmI(state), policy )
-        # legal = api.legalActions(state)
-        # Random choice between the legal options.
-        return api.makeMove(policy[now], legal)
+        self.value_iteration(state)
+
+        if Directions.STOP in legal:
+            legal.remove(Directions.STOP)
+
+        actionUtil = []
+        for action in legal:
+            if action == "West":
+                newState = ((current_state[0]-1),(current_state[1]))
+            elif action == "East":
+                newState = ((current_state[0]+1),(current_state[1]))
+            elif action == "North":
+                newState = ((current_state[0]),(current_state[1]+1))
+            else: 
+                action == "South"
+                newState = ((current_state[0]),(current_state[1]-1))
+            actionUtil.append(self.Values[newState])
+        
+        """ 
+        Identify the action with max util from the value iteration. 
+        As numpy is not allowed to be used for project purpose, below method is used to 
+        identify the index of action with maximum utility (argmax).
+        """
+        maxActionUtil = max(actionUtil)
+        policy = legal[actionUtil.index(maxActionUtil)]
+
+
+        # print 'State I am in:'
+        # print current_state
+        # print 'Action I take'
+        # print self.Policy[current_state]
+
+    
+
+
+        return api.makeMove(policy, legal)
+
+
