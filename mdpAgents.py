@@ -8,10 +8,10 @@ import util
 
 #Rewards
 FOOD = 100
-CAPS = 400
+CAPSULE = 1000 #17/25
 GHOST = -15000
 EMPTY = -5
-GAMMA = 0.9
+DISCOUNT_FACTOR = 0.9
 
 class MDPAgent(Agent):
     # Constructor: this gets run when we first invoke pacman.py
@@ -19,7 +19,6 @@ class MDPAgent(Agent):
         print "Starting up MDPAgent!"
         name = "Pacman"
         self.Values = {}
-        self.Policy = {}
 
         
     def get_layout_height(self, corners):
@@ -52,7 +51,7 @@ class MDPAgent(Agent):
         return states
 
     # Return next states as result of taking action from the current state
-    # Next state resturned as a list of tuples [west, north, south, east]
+    # Next state returned as a list of tuples [west, north, south, east]
     def get_next_state(self, all_states, current_state):
         west = (current_state[0]-1, current_state[1])
         north = (current_state[0], current_state[1]+1)
@@ -113,13 +112,32 @@ class MDPAgent(Agent):
             elif s in food:
                 mapRewards[s] = FOOD
             elif s in capsules:
-                mapRewards[s] = CAPS
+                mapRewards[s] = CAPSULE
             else:
                 mapRewards[s] = EMPTY
 
         return mapRewards
 
+    def get_best_policy(self, state, current_state, legal_actions):
+        
+        actions_utilities_temp = []
+        for action in legal_actions:
+            if action == "West":
+                next_state = ((current_state[0]-1),(current_state[1]))
+            elif action == "East":
+                next_state = ((current_state[0]+1),(current_state[1]))
+            elif action == "North":
+                next_state = ((current_state[0]),(current_state[1]+1))
+            else: 
+                action == "South"
+                next_state = ((current_state[0]),(current_state[1]-1))
+            actions_utilities_temp.append(self.Values[next_state])
+        
 
+        best_action_utility = max(actions_utilities_temp)
+        best_policy = actions_utilities_temp.index(best_action_utility)
+
+        return best_policy
     def value_iteration(self, state, theta=0.001):
         
         
@@ -132,58 +150,47 @@ class MDPAgent(Agent):
             self.Policy[n] = None
             new_Values[n] = 0.0 
     
-        convered_states = []
-        while len(convered_states) < len(states):
+        converged_states = []
+        while len(converged_states) < len(states):
             
             #initialize values for each state assign zero
             
             for s in states:
-                max_val = 0.0 #initialise max value to zero
-                Utility = []
+                #initialise max expected utility value to zero
+                max_exp_utility = 0.0
+
+                exp_utilities_temp = []
 
                 next_state = self.get_next_state(states, s)
 
-                #Calculate expected unitility value for each transition
-
+                #Calculate expected discounted reward value (utility) for each transition
                 r_west = new_Values[next_state[0]]
                 r_north = new_Values[next_state[1]]
                 r_south = new_Values[next_state[2]]
                 r_east = new_Values[next_state[3]]
-                Utility.append(0.8*r_west+0.1*r_north+0.1*r_south)
-                Utility.append(0.8*r_north+0.1*r_west+0.1*r_east)
-                Utility.append(0.8*r_south+0.1*r_east+0.1*r_west)
-                Utility.append(0.8*r_east+0.1*r_north+0.1*r_south)
+                exp_utilities_temp.append(0.8*r_west+0.1*r_north+0.1*r_south)
+                exp_utilities_temp.append(0.8*r_north+0.1*r_west+0.1*r_east)
+                exp_utilities_temp.append(0.8*r_south+0.1*r_east+0.1*r_west)
+                exp_utilities_temp.append(0.8*r_east+0.1*r_north+0.1*r_south)
                 
+                #Choose the value of highest utility
+                max_exp_utility = max(exp_utilities_temp)              
 
-                max_val = max(Utility)
-                max_index = str(Utility.index(max_val))                
-
-                # if max_index == '0':
-                #     self.Policy[s] = Directions.WEST
-                # elif max_index == '1':
-                #     self.Policy[s] = Directions.NORTH
-                # elif max_index == '2':
-                #     self.Policy[s] = Directions.SOUTH
-                # elif max_index == '3':
-                #     self.Policy[s] = Directions.EAST
-
-                
                 #bellman update
-                new_Values[s] = rewards[s] + (GAMMA * max_val)      
+                new_Values[s] = rewards[s] + (DISCOUNT_FACTOR * max_exp_utility)      
                 
-                
-                #update max difference
+                #update difference between calculated utility and utility from previous iteration
                 delta = abs(self.Values[s] - new_Values[s])
                
-                #Update values for states
+                #update values of states
                 self.Values[s] = new_Values[s]
                 
  
             # Record the state as converged, when delta<theta
             # Allows to terminate when states converged
                 if delta < theta:
-                    if s not in convered_states:
-                        convered_states.append(s)
+                    if s not in converged_states:
+                        converged_states.append(s)
 
 
     # (skeleton) Gets run after an MDPAgent object is created and once there is
@@ -202,45 +209,16 @@ class MDPAgent(Agent):
     # Run at each game clock
     def getAction(self, state):
         
-        #print 'Game iter'
-        
         current_state = api.whereAmI(state)
-        legal = api.legalActions(state)
+        legal_actions = api.legalActions(state)
         self.value_iteration(state)
 
-        if Directions.STOP in legal:
-            legal.remove(Directions.STOP)
+        if Directions.STOP in legal_actions:
+            legal_actions.remove(Directions.STOP)
 
-        actionUtil = []
-        for action in legal:
-            if action == "West":
-                newState = ((current_state[0]-1),(current_state[1]))
-            elif action == "East":
-                newState = ((current_state[0]+1),(current_state[1]))
-            elif action == "North":
-                newState = ((current_state[0]),(current_state[1]+1))
-            else: 
-                action == "South"
-                newState = ((current_state[0]),(current_state[1]-1))
-            actionUtil.append(self.Values[newState])
-        
-        """ 
-        Identify the action with max util from the value iteration. 
-        As numpy is not allowed to be used for project purpose, below method is used to 
-        identify the index of action with maximum utility (argmax).
-        """
-        maxActionUtil = max(actionUtil)
-        policy = legal[actionUtil.index(maxActionUtil)]
+        action = self.get_best_policy(state, current_state, legal_actions)
+        policy = legal_actions[action]
 
-
-        # print 'State I am in:'
-        # print current_state
-        # print 'Action I take'
-        # print self.Policy[current_state]
-
-    
-
-
-        return api.makeMove(policy, legal)
+        return api.makeMove(policy, legal_actions)
 
 
