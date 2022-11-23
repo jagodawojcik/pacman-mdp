@@ -71,7 +71,14 @@ class MDPAgent(Agent):
     # from this state, as a list of (next_state, probability) pairs
     # tested and works
     #def get_transitions(self, state, current_state, action):
+    def get_ghost_danger_region(self, state):
 
+        if self.get_layout_height( api.corners(state)) <= 7:
+            danger_radius = 1
+        else:
+            danger_radius = 2
+
+        return danger_radius
     
     # creates a dictionary of direct state rewards
     def map_rewards(self, state, states):
@@ -83,25 +90,21 @@ class MDPAgent(Agent):
         # otherwise.
 
         ghost_loc = []
+        #radius = self.get_ghost_danger_region()
+        radius = self.get_ghost_danger_region(state)
+
         for g, status in api.ghostStates(state):
             if status == 0:
-                ghost_loc.append(g)
-                ghost_loc.append((g[0]+1, g[1])) #one sq east
-                ghost_loc.append((g[0]-1, g[1])) #one sq west
-                ghost_loc.append((g[0], g[1]+1)) #one sq north
-                ghost_loc.append((g[0], g[1]-1)) #one sq south
-                ghost_loc.append((g[0]+1, g[1]+1)) #one sq east
-                ghost_loc.append((g[0]-1, g[1]-1)) #one sq west
-                ghost_loc.append((g[0]+1, g[1]-1)) #one sq north
-                ghost_loc.append((g[0]-1, g[1]+1)) #one sq south
-                ghost_loc.append((g[0]+2, g[1])) #one sq east
-                ghost_loc.append((g[0]-2, g[1])) #one sq west
-                ghost_loc.append((g[0], g[1]+2)) #one sq north
-                ghost_loc.append((g[0], g[1]-2)) #one sq south
-                ghost_loc.append((g[0]+2, g[1]+2)) #one sq east
-                ghost_loc.append((g[0]-2, g[1]-2)) #one sq west
-                ghost_loc.append((g[0]+2, g[1]-2)) #one sq north
-                ghost_loc.append((g[0]-2, g[1]+2)) #one sq south
+                for r in range(radius):
+                    ghost_loc.append(g)
+                    ghost_loc.append((g[0]+r, g[1])) #one sq east
+                    ghost_loc.append((g[0]-r, g[1])) #one sq west
+                    ghost_loc.append((g[0], g[1]+r)) #one sq north
+                    ghost_loc.append((g[0], g[1]-r)) #one sq south
+                    ghost_loc.append((g[0]+r, g[1]+r)) #one sq east
+                    ghost_loc.append((g[0]-r, g[1]-r)) #one sq west
+                    ghost_loc.append((g[0]+r, g[1]-r)) #one sq north
+                    ghost_loc.append((g[0]-r, g[1]+r)) #one sq south
             elif status == 1:
                 capsules.append(g)
 
@@ -147,7 +150,6 @@ class MDPAgent(Agent):
         # Values is the length of how many states we've got
         for n in states:
             self.Values[n] = 0.0
-            self.Policy[n] = None
             new_Values[n] = 0.0 
     
         converged_states = []
