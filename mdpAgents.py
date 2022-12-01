@@ -1,16 +1,53 @@
+# mdpAgents.py
+#
+# Author: Jagoda Wojcik
+# k21171248
+# Value Iteration MDP Solver for pacman  
+# AI Reasoning and Decision Making KCL '22
+# (use pacman.py -q -n 25 -p MDPAgent -l mediumCLassic/smallGrid
+# to run)
+
+
+# Skeleton code: parsons/20-nov-2017
+# Version 1
+#
+# The starting point for CW2.
+#
+# Intended to work with the PacMan AI projects from:
+#
+# http://ai.berkeley.edu/
+#
+# These use a simple API that allow us to control Pacman's interaction with
+# the environment adding a layer on top of the AI Berkeley code.
+#
+# As required by the licensing agreement for the PacMan AI we have:
+#
+# Licensing Information:  You are free to use or extend these projects for
+# educational purposes provided that (1) you do not distribute or publish
+# solutions, (2) you retain this notice, and (3) you provide clear
+# attribution to UC Berkeley, including a link to http://ai.berkeley.edu.
+# 
+# Attribution Information: The Pacman AI projects were developed at UC Berkeley.
+# The core projects and autograders were primarily created by John DeNero
+# (denero@cs.berkeley.edu) and Dan Klein (klein@cs.berkeley.edu).
+# Student side autograding was added by Brad Miller, Nick Hay, and
+# Pieter Abbeel (pabbeel@cs.berkeley.edu).
+
 from pacman import Directions
 from game import Agent
-from mapAgents import Grid
 import api
 import random
 import game
 import util
 
-#Rewards
-FOOD = 100
-CAPSULE = 1000 #17/25
-GHOST = -15000
-EMPTY = -5
+
+# Constants used in rewards assignment
+FOOD = 1000
+CAPSULE = 1000
+GHOST = -20000
+EMPTY = 100
+
+# Discount factor used to discount future rewards
 DISCOUNT_FACTOR = 0.9
 
 class MDPAgent(Agent):
@@ -18,16 +55,20 @@ class MDPAgent(Agent):
     def __init__(self):
         print "Starting up MDPAgent!"
         name = "Pacman"
+        # Variable to store utility values for each state
         self.Values = {}
-
-        
+    
+    # Read layout height
+    # source - Practical 5 mapAgents.py AI Reasoning & Decision Making KCL
     def get_layout_height(self, corners):
         height = -1
         for i in range(len(corners)):
             if corners[i][1] > height:
                 height = corners[i][1]
         return height + 1
-
+    
+    # Read layout width
+    #source - Practical 5 mapAgents.py AI Reasoning & Decision Making KCL
     def get_layout_width(self, corners):
         width = -1
         for i in range(len(corners)):
@@ -50,8 +91,9 @@ class MDPAgent(Agent):
         
         return states
 
-    # Return next states as result of taking action from the current state
-    # Next state returned as a list of tuples [west, north, south, east]
+    # Return next state as result of taking action from the current state
+    # Next state returned as a list of tuples:
+    # [west (right), north (up), south (down), east (left)]
     def get_next_state(self, all_states, current_state):
         west = (current_state[0]-1, current_state[1])
         north = (current_state[0], current_state[1]+1)
@@ -60,67 +102,61 @@ class MDPAgent(Agent):
 
         next_state = [west, north, south, east]
         
-        #if state is a wall, assign current state to next state
+        # If state is a wall pacman bumps and stays in current
+        #current state
         for a in next_state:
             if a not in all_states:
                 next_state[next_state.index(a)] = current_state
 
         return next_state
 
-    #Return all non-zero probability transitions for this action
-    # from this state, as a list of (next_state, probability) pairs
-    # tested and works
-    #def get_transitions(self, state, current_state, action):
-    def get_ghost_danger_region(self, state):
 
-        if self.get_layout_height( api.corners(state)) <= 7:
-            danger_radius = 1
-        else:
-            danger_radius = 2
+    def get_ghost_danger_region(self, state):
+        
+        # It was found that for both layers +- 1 grid point from ghost
+        #is enough to assign negative values to, so for both layouts:
+        danger_radius = 1
 
         return danger_radius
     
-    # creates a dictionary of direct state rewards
+    # Create a dictionary of direct state rewards
     def map_rewards(self, state, states):
-         
+        
         mapRewards = {}
         food = api.food(state)
         capsules = api.capsules(state)
-        #"state" is 1 if the relevant ghost is scared/edible, and 0
-        # otherwise.
-
+       
         ghost_loc = []
-        #radius = self.get_ghost_danger_region()
         radius = self.get_ghost_danger_region(state)
 
         for g, status in api.ghostStates(state):
             if status == 0:
-                for r in range(radius):
-                    ghost_loc.append(g)
-                    ghost_loc.append((g[0]+r, g[1])) #one sq east
-                    ghost_loc.append((g[0]-r, g[1])) #one sq west
-                    ghost_loc.append((g[0], g[1]+r)) #one sq north
-                    ghost_loc.append((g[0], g[1]-r)) #one sq south
-                    ghost_loc.append((g[0]+r, g[1]+r)) #one sq east
-                    ghost_loc.append((g[0]-r, g[1]-r)) #one sq west
-                    ghost_loc.append((g[0]+r, g[1]-r)) #one sq north
-                    ghost_loc.append((g[0]-r, g[1]+r)) #one sq south
+                ghost_loc.append(g)
+                ghost_loc.append((g[0]+radius, g[1])) #one sq east
+                ghost_loc.append((g[0]-radius, g[1])) #one sq west
+                ghost_loc.append((g[0], g[1]+radius)) #one sq north
+                ghost_loc.append((g[0], g[1]-radius)) #one sq south
+            # It was found that for best win rate when ghost edible no specific
+            #value will be assigned
             elif status == 1:
-                capsules.append(g)
+                pass
 
-
+        
         for s in states:
+            
             if s in ghost_loc:
-                mapRewards[s] = GHOST
+                mapRewards[s] = GHOST  
             elif s in food:
-                mapRewards[s] = FOOD
+                mapRewards[s] = FOOD 
             elif s in capsules:
-                mapRewards[s] = CAPSULE
+                mapRewards[s] = CAPSULE 
             else:
                 mapRewards[s] = EMPTY
-
+        
         return mapRewards
 
+    # Retrive best policy (action) for the current state and its legal action
+    #based on utilities values self.Values calculated through value iteration
     def get_best_policy(self, state, current_state, legal_actions):
         
         actions_utilities_temp = []
@@ -140,22 +176,23 @@ class MDPAgent(Agent):
         best_action_utility = max(actions_utilities_temp)
         best_policy = actions_utilities_temp.index(best_action_utility)
 
-        return best_policy
-    def value_iteration(self, state, theta=0.001):
-        
+        return legal_actions[best_policy]
+
+    #Heart of the coursework - Value Iteration MDP Solver
+    def value_iteration(self, state, theta=0.01):
         
         states = self.get_states(state)
         rewards = self.map_rewards(state, states)
+        
         new_Values = {}
         # Values is the length of how many states we've got
         for n in states:
             self.Values[n] = 0.0
             new_Values[n] = 0.0 
-    
+
+        #Initialize convergence list to keep track of converged states
         converged_states = []
         while len(converged_states) < len(states):
-            
-            #initialize values for each state assign zero
             
             for s in states:
                 #initialise max expected utility value to zero
@@ -165,62 +202,67 @@ class MDPAgent(Agent):
 
                 next_state = self.get_next_state(states, s)
 
-                #Calculate expected discounted reward value (utility) for each transition
-                r_west = new_Values[next_state[0]]
-                r_north = new_Values[next_state[1]]
-                r_south = new_Values[next_state[2]]
-                r_east = new_Values[next_state[3]]
-                exp_utilities_temp.append(0.8*r_west+0.1*r_north+0.1*r_south)
-                exp_utilities_temp.append(0.8*r_north+0.1*r_west+0.1*r_east)
-                exp_utilities_temp.append(0.8*r_south+0.1*r_east+0.1*r_west)
-                exp_utilities_temp.append(0.8*r_east+0.1*r_north+0.1*r_south)
+                # Fetch utility value for surrounding states to our current state
+                u_west = new_Values[next_state[0]]
+                u_north = new_Values[next_state[1]]
+                u_south = new_Values[next_state[2]]
+                u_east = new_Values[next_state[3]]
+                # Calculate expected utility value for each surrounding state
+                #account for transistions P(s'|s,a)
+                exp_utilities_temp.append(0.8*u_west+0.1*u_north+0.1*u_south)
+                exp_utilities_temp.append(0.8*u_north+0.1*u_west+0.1*u_east)
+                exp_utilities_temp.append(0.8*u_south+0.1*u_east+0.1*u_west)
+                exp_utilities_temp.append(0.8*u_east+0.1*u_north+0.1*u_south)
                 
-                #Choose the value of highest utility
+                # Choose the value of highest utility for our bellman update
                 max_exp_utility = max(exp_utilities_temp)              
 
-                #bellman update
+                # Bellman update
                 new_Values[s] = rewards[s] + (DISCOUNT_FACTOR * max_exp_utility)      
                 
-                #update difference between calculated utility and utility from previous iteration
+                # Update difference between calculated utility and utility from previous iteration
                 delta = abs(self.Values[s] - new_Values[s])
                
-                #update values of states
+                # Update values of max utility of states
                 self.Values[s] = new_Values[s]
                 
- 
             # Record the state as converged, when delta<theta
-            # Allows to terminate when states converged
+            # Allows to terminate when all states converged
                 if delta < theta:
                     if s not in converged_states:
                         converged_states.append(s)
 
-
-    # (skeleton) Gets run after an MDPAgent object is created and once there is
+    # (from skeleton) Gets run after an MDPAgent object is created and once there is
     # game state to access.
     def registerInitialState(self, state):
         print "Running registerInitialState for MDPAgent!"
-        #map rewards
-        # get rewards to be tested
-
+       
     # (skeleton) This is what gets run in between multiple games
     def final(self, state):
         print "Looks like the game just ended!"
+        
+        #clear utility values
         self.Values = {}
-        self.Policy = {}
+    
 
     # Run at each game clock
     def getAction(self, state):
         
+        #get some information about pacman and its legal actions
         current_state = api.whereAmI(state)
         legal_actions = api.legalActions(state)
+
+        #calculate max expected utility for each state through value iter
+        self.Values = {}
         self.value_iteration(state)
 
+        #Remove stop from legal actions
         if Directions.STOP in legal_actions:
             legal_actions.remove(Directions.STOP)
+        
+        #Get best policy - check what action leads to best utility
+        #could've been saved in a form of dict on value iter stage, however
+        #this was found to execute faster
+        move = self.get_best_policy(state, current_state, legal_actions)
 
-        action = self.get_best_policy(state, current_state, legal_actions)
-        policy = legal_actions[action]
-
-        return api.makeMove(policy, legal_actions)
-
-
+        return api.makeMove(move, legal_actions)
